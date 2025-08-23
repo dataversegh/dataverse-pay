@@ -1,0 +1,147 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Payment Result</title>
+<style>
+body {
+  margin:0; padding:0;
+  font-family:"Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background:linear-gradient(135deg, #0a2647, #144272);
+  color:white;
+  display:flex;
+  justify-content:center;
+  align-items:flex-start;
+  min-height:100vh;
+}
+.card {
+  background: rgba(255,255,255,0.1);
+  backdrop-filter: blur(12px);
+  padding:40px;
+  border-radius:20px;
+  text-align:center;
+  box-shadow:0 8px 25px rgba(0,0,0,0.3);
+  max-width:500px;
+  margin-top:150px;
+  position:relative;
+  overflow:hidden;
+}
+h1 { font-size:2.2rem; margin-bottom:10px; opacity:0; animation:fadeIn 1s forwards; }
+p { font-size:1.1rem; margin-bottom:25px; opacity:0; animation:fadeIn 1s forwards; animation-delay:0.3s; }
+.button { display:inline-block; padding:14px 24px; border-radius:10px; text-decoration:none; font-weight:bold; font-size:1rem; transition:all 0.3s ease; opacity:0; animation:fadeIn 1s forwards; animation-delay:0.6s; }
+.success-btn { background:#ff6b35; color:white; box-shadow:0 5px 15px rgba(255,107,53,0.4); }
+.success-btn:hover { background:#ff834f; transform:translateY(-3px); box-shadow:0 8px 20px rgba(255,107,53,0.6); }
+.fail-btn { background:#e63946; color:white; box-shadow:0 5px 15px rgba(230,57,70,0.4); }
+.fail-btn:hover { background:#f05464; transform:translateY(-3px); box-shadow:0 8px 20px rgba(230,57,70,0.6); }
+.loader { border:5px solid rgba(255,255,255,0.2); border-top:5px solid #ff6b35; border-radius:50%; width:50px; height:50px; margin:20px auto; animation:spin 1s linear infinite; }
+@keyframes spin { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
+@keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+</style>
+</head>
+<body>
+<div class="card" id="statusCard">
+  <h1>⏳ Checking Payment Status...</h1>
+  <div class="loader"></div>
+  <p>Please wait while we confirm your transaction.</p>
+</div>
+ <script>
+    // ✅ Prevent being trapped inside Google/other iframes
+    if (window.location !== window.parent.location) {
+      window.top.location = window.location.href;
+    }
+
+    document.addEventListener("DOMContentLoaded", function() {
+      console.log("✅ Success page JS loaded");
+
+      const API_URL = "https://appscript.nyarderr.workers.dev/"; // ✅ Worker
+      const params = new URLSearchParams(window.location.search);
+      const reference = params.get("reference") || params.get("trxref");
+
+      console.log("🔍 Extracted reference:", reference);
+      console.log("🔗 Expected fetch URL:", `${API_URL}?reference=${reference}`);
+
+      const card = document.getElementById("statusCard");
+
+      if (!card) return;
+
+      card.innerHTML = `
+        <div class="loader"></div>
+        <p>⏳ Checking your payment, please wait...</p>
+      `;
+      const loader = card.querySelector('.loader');
+
+      if (!reference) {
+        console.warn("⚠️ No reference param found in URL");
+        card.innerHTML = `
+          <div class="loader"></div>
+          <h1>⏳ Waiting for payment reference...</h1>
+          <p>If you were redirected here after payment, please use the link with the reference code.</p>
+        `;
+        return;
+      }
+
+      async function fetchStatus(ref, retries = 10, delay = 2500) {
+        try {
+          console.log(`📡 Fetching status for ref: ${ref}, retries left: ${retries}`);
+          const resp = await fetch(`${API_URL}?reference=${ref}`, { cache: "no-store" });
+
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+          let data;
+          try {
+            data = await resp.json();
+          } catch (e) {
+            throw new Error("Invalid JSON from API");
+          }
+
+          console.log("✅ Worker Response:", data);
+
+          if ((data.status === true || data.status === "success") && data.formLink) {
+            loader.style.display = "none";
+            card.innerHTML = `
+              <h1>🎉 Payment Successful!</h1>
+              <p>Reference: <strong>${ref}</strong></p>
+              <p>Package: <strong>${data.package || "-"}</strong></p>
+              <p>Thank you! Please fill the project submission form:</p>
+              <a class="button success-btn" href="${data.formLink}" target="_blank">Fill Submission Form</a>
+            `;
+          } else if ((data.status === false && data.message) || retries <= 0) {
+            loader.style.display = "none";
+            card.innerHTML = `
+              <h1>❌ Payment Not Found</h1>
+              <p>${data.message || "Reference: " + ref + " was not located. If you already paid, please contact support."}</p>
+              <a class="button fail-btn" href="https://www.dataversegh.com/pay-now">Try Again</a>
+            `;
+          } else {
+            loader.style.display = "block";
+            console.log(`⏳ Retrying in ${delay}ms...`);
+            setTimeout(() => fetchStatus(ref, retries - 1, delay), delay);
+          }
+
+          const elements = card.querySelectorAll('h1, p, a');
+          elements.forEach((el, idx) => {
+            el.style.opacity = 0;
+            el.style.animation = `fadeIn 0.5s forwards`;
+            el.style.animationDelay = `${idx * 0.2}s`;
+          });
+
+        } catch (err) {
+          console.error("❌ Fetch error:", err.message);
+          if (retries > 0) {
+            setTimeout(() => fetchStatus(ref, retries - 1, delay), delay);
+          } else {
+            loader.style.display = "none";
+            card.innerHTML = `
+              <h1>⚠️ Error checking payment</h1>
+              <p>Please try again later.</p>
+              <a class="button fail-btn" href="/payment-page">Try Again</a>
+            `;
+          }
+        }
+      }
+
+      fetchStatus(reference);
+    });
+  </script>
+</body>
+</html>
